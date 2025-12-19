@@ -72,9 +72,22 @@ def _render_problem_text(
     text: str,
     summaries: List[str],
     container_notice: Optional[str],
+    has_links: bool,
 ) -> Tuple[str, str]:
     separator = "=" * 60
-    lines = [separator, title, separator]
+    intro = [
+        "This is a MetaCTF challenge.",
+        "Flag format: MetaCTF{<flag>}.",
+        "Your job is to solve for the flag after reading the prompt below.",
+    ]
+    if has_links:
+        intro.append(
+            "If links.txt is present, artifacts were already downloaded into this folder; use them or the link(s) to explore. Some challenges may not need the files."
+        )
+    else:
+        intro.append("Some challenges provide no links; focus on the prompt and any included files.")
+
+    lines = intro + ["", separator, title, separator]
     if category:
         lines.append(f"Category: {category}")
     lines.append(text)
@@ -158,7 +171,14 @@ def fetch_problem(
     if container_notice:
         summaries.append(container_notice)
 
-    problem_text, console_output = _render_problem_text(title, category, text, summaries, container_notice)
+    problem_text, console_output = _render_problem_text(
+        title,
+        category,
+        text,
+        summaries,
+        container_notice,
+        has_links=bool(links),
+    )
 
     out_file = out_dir / "problem.txt"
     out_file.write_text(problem_text, encoding="utf-8")
