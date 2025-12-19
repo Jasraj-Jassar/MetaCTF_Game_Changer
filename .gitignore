@@ -2,3 +2,4 @@ cookies.txt
 __pycache__/
 *.pyc
 metactf_*_problems.txt
+CTFProblems/

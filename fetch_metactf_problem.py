@@ -76,6 +76,8 @@ title = problem.get("name") or problem.get("title") or ""
 desc  = problem.get("description") or problem.get("prompt") or problem.get("body") or ""
 problem_slug = re.sub(r'[^a-zA-Z0-9._-]+', '_', title.strip())
 problem_slug = re.sub(r'_+', '_', problem_slug).strip("_") or f"problem_{problem_id}"
+root_dir = Path.cwd() / "CTFProblems"
+root_dir.mkdir(parents=True, exist_ok=True)
 
 # ---- Extract links ----
 raw_links = re.findall(r'href=[\'"]([^\'"]+)[\'"]', desc, flags=re.I)
@@ -94,12 +96,20 @@ text = re.sub(r'</p\s*>', '\n\n', text, flags=re.I)
 text = re.sub(r'<[^>]+>', '', text)
 text = re.sub(r'\n{3,}', '\n\n', text).strip()
 
+# ---- Detect container spawn hints ----
+lower_text = text.lower()
+container_notice = None
+if ("Container" in lower_text and "Spawn" in lower_text) or "container spawned" in lower_text:
+    container_notice = "Container spawn message detected; manual action may be required."
+
 # ---- Build base problem text ----
 separator = "=" * 60
 problem_lines = [separator, title, separator, text]
+if container_notice:
+    problem_lines.extend(["", f"NOTE: {container_notice}"])
 problem_lines.append("")
 
-out_dir = Path.cwd() / problem_slug
+out_dir = root_dir / problem_slug
 out_dir.mkdir(parents=True, exist_ok=True)
 
 # ---- Download linked files ----
@@ -152,6 +162,8 @@ if downloaded:
     summaries.append(f"Downloaded {len(downloaded)} link(s) with wget into {out_dir}")
 if failed_downloads:
     summaries.append(f"{len(failed_downloads)} download(s) failed; see {links_file.name}")
+if container_notice:
+    summaries.append(container_notice)
 
 if summaries:
     problem_lines.extend(summaries)
