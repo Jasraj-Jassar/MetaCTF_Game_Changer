@@ -12,6 +12,64 @@ def die(msg):
     print(f"[!] {msg}")
     sys.exit(1)
 
+
+def detect_container_notice(*chunks):
+    patterns = [
+        r"container\s+spawn",
+        r"container\s+spawned",
+        r"spawning\s+container",
+        r"container\s+started",
+        r"container\s+ready",
+        r"container\s+will\s+be\s+ready",
+        r"your\s+container",
+        r"container\s+may\s+take",
+        r"container\s+running",
+        r"container\s+initializing",
+    ]
+    js_markers = (
+        "getchaldetails",
+        "getchaldetails2",
+        "setinterval(() => getchaldetails2",
+        "loading ...",
+    )
+    for chunk in chunks:
+        if not chunk:
+            continue
+        lower = chunk.lower()
+        for pat in patterns:
+            if re.search(pat, lower):
+                return "Container spawn message detected; manual action may be required."
+        for marker in js_markers:
+            if marker in lower:
+                return "Dynamic challenge content detected (likely container/polling); open in browser to spawn/manage the container."
+    return None
+
+
+def detect_category(problem, *chunks):
+    # Prefer explicit category fields from the API
+    for key in ("category", "cat", "topic", "type", "domain", "challengeType"):
+        val = problem.get(key)
+        if isinstance(val, (list, tuple)):
+            val = ", ".join(str(v) for v in val if v)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+
+    # Heuristic keywords fallback
+    text = " ".join(c for c in chunks if c).lower()
+    keyword_map = {
+        "web": ["http", "cookie", "xss", "sqli", "sql", "csrf", "cors", "lfi", "rfi", "web"],
+        "crypto": ["rsa", "cipher", "encrypt", "decrypt", "crypto", "aes", "xor", "hash", "modulus"],
+        "reverse": ["reverse", "disasm", "decompile", "binary", "elf", "ghidra", "ida"],
+        "pwn": ["overflow", "fmtstr", "heap", "stack", "shellcode", "ret2", "rop", "pwn"],
+        "forensics": ["pcap", "memory", "forensic", "disk", "image", "artifact"],
+        "osint": ["twitter", "social", "osint", "linkedin", "geo", "exif"],
+    }
+    for cat, keywords in keyword_map.items():
+        if any(k in text for k in keywords):
+            return cat
+
+    return None
+
 if len(sys.argv) != 2:
     die("Usage: python fetch_metactf_problem.py <problem_url>")
 
@@ -74,6 +132,7 @@ if not problem:
 
 title = problem.get("name") or problem.get("title") or ""
 desc  = problem.get("description") or problem.get("prompt") or problem.get("body") or ""
+category = detect_category(problem, title, desc)
 problem_slug = re.sub(r'[^a-zA-Z0-9._-]+', '_', title.strip())
 problem_slug = re.sub(r'_+', '_', problem_slug).strip("_") or f"problem_{problem_id}"
 root_dir = Path.cwd() / "CTFProblems"
@@ -97,19 +156,19 @@ text = re.sub(r'<[^>]+>', '', text)
 text = re.sub(r'\n{3,}', '\n\n', text).strip()
 
 # ---- Detect container spawn hints ----
-lower_text = text.lower()
-container_notice = None
-if ("Container" in lower_text and "Spawn" in lower_text) or "container spawned" in lower_text:
-    container_notice = "Container spawn message detected; manual action may be required."
+container_notice = detect_container_notice(desc, text)
 
 # ---- Build base problem text ----
 separator = "=" * 60
-problem_lines = [separator, title, separator, text]
+problem_lines = [separator, title, separator]
+if category:
+    problem_lines.append(f"Category: {category}")
+problem_lines.append(text)
 if container_notice:
     problem_lines.extend(["", f"NOTE: {container_notice}"])
 problem_lines.append("")
 
-out_dir = root_dir / problem_slug
+out_dir = (root_dir / "Containerized" / problem_slug) if container_notice else (root_dir / problem_slug)
 out_dir.mkdir(parents=True, exist_ok=True)
 
 # ---- Download linked files ----
@@ -170,12 +229,24 @@ if summaries:
 
 output_text = "\n".join(problem_lines).rstrip() + "\n"
 
+# ---- Build console output (add red color for warnings) ----
+console_output_text = output_text
+if container_notice:
+    red, reset = "\033[31m", "\033[0m"
+    console_lines = []
+    for line in problem_lines:
+        if container_notice in line or line.strip().startswith("NOTE:"):
+            console_lines.append(f"{red}{line}{reset}")
+        else:
+            console_lines.append(line)
+    console_output_text = "\n".join(console_lines).rstrip() + "\n"
+
 # ---- Save to problem.txt ----
 out_file = out_dir / "problem.txt"
 out_file.write_text(output_text, encoding="utf-8")
 
 # ---- Output ----
-print(output_text, end="")
+print(console_output_text, end="")
 if links_file:
     print(f"[+] Saved to {out_file} (links in {links_file})")
 else:
