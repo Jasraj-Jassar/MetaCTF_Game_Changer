@@ -5,6 +5,8 @@ import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+import shutil
+import subprocess
 from typing import Iterable, List, Optional
 
 from .event_index import fetch_problem_urls, write_problem_list
@@ -46,6 +48,32 @@ def _load_urls(source: str, *, cookies: Path, session) -> tuple[List[str], Optio
     return urls, out_file
 
 
+def _open_folders(paths: Iterable[Path], *, code_bin: str, new_window: bool) -> int:
+    if not shutil.which(code_bin):
+        print(f"[!] VS Code CLI not found: {code_bin}", file=sys.stderr)
+        return 1
+
+    visited = set()
+    rc = 0
+    for path in paths:
+        resolved = Path(path).resolve()
+        if resolved in visited:
+            continue
+        visited.add(resolved)
+        if not resolved.exists():
+            print(f"[!] Cannot open missing folder: {resolved}", file=sys.stderr)
+            rc = 1
+            continue
+
+        cmd = [code_bin]
+        if new_window:
+            cmd.append("-n")
+        cmd.append(str(resolved))
+        subprocess.run(cmd, check=False)
+
+    return rc
+
+
 def _add_index_parser(subparsers):
     parser = subparsers.add_parser("index", help="Fetch problem URLs for an event problems page")
     parser.add_argument("problems_url", help="https://compete.metactf.com/<event_id>/problems")
@@ -60,6 +88,9 @@ def _add_fetch_parser(subparsers):
     parser.add_argument("--cookies", default="cookies.txt", type=Path, help="Path to cookies.txt (default: ./cookies.txt)")
     parser.add_argument("--dest", default=Path("CTFProblems"), type=Path, help="Destination root directory (default: CTFProblems)")
     parser.add_argument("--skip-downloads", action="store_true", help="Do not download linked files")
+    parser.add_argument("--open-folder", action="store_true", help="Open the downloaded folder in VS Code")
+    parser.add_argument("--code-bin", default="code", help="VS Code command (default: code)")
+    parser.add_argument("--code-new-window", action="store_true", help="Open folder in a new VS Code window")
     parser.set_defaults(func=handle_fetch)
 
 
@@ -76,6 +107,9 @@ def _add_fetch_all_parser(subparsers):
     parser.add_argument("--dest", default=Path("CTFProblems"), type=Path, help="Destination root directory (default: CTFProblems)")
     parser.add_argument("--concurrency", default=None, type=_positive_int, help="Number of concurrent fetches (default: CPU count)")
     parser.add_argument("--skip-downloads", action="store_true", help="Do not download linked files")
+    parser.add_argument("--open-folders", action="store_true", help="Open each fetched folder in VS Code")
+    parser.add_argument("--code-bin", default="code", help="VS Code command (default: code)")
+    parser.add_argument("--code-new-window", action="store_true", help="Open each folder in a new VS Code window")
     parser.set_defaults(func=handle_fetch_all)
 
 
@@ -121,6 +155,8 @@ def handle_fetch(args) -> int:
         print(f"[+] Saved to {result.problem_file} (links in {result.links_file.name})")
     else:
         print(f"[+] Saved to {result.problem_file} (no links found)")
+    if args.open_folder:
+        return _open_folders([result.out_dir], code_bin=args.code_bin, new_window=args.code_new_window)
     return 0
 
 
@@ -152,6 +188,7 @@ def handle_fetch_all(args) -> int:
     print(f"[*] Fetching {len(urls)} problem(s) with concurrency={concurrency}")
 
     failures: list[tuple[str, Exception]] = []
+    results: list[ProblemResult] = []
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         futures = {
             pool.submit(
@@ -172,11 +209,17 @@ def handle_fetch_all(args) -> int:
                 failures.append((url, exc))
                 print(f"[!] Failed: {url} -> {exc}", file=sys.stderr)
                 continue
+            results.append(result)
             _print_fetch_all_result(result)
 
     if failures:
         print(f"[!] {len(failures)} problem(s) failed. See logs above.", file=sys.stderr)
         return 1
+
+    if args.open_folders and results:
+        rc = _open_folders((r.out_dir for r in results), code_bin=args.code_bin, new_window=args.code_new_window)
+        if rc != 0:
+            return rc
 
     print("[+] Done.")
     return 0

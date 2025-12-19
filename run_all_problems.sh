@@ -10,6 +10,9 @@ set -euo pipefail
 #   COOKIES=<path>            -> --cookies
 #   DEST=<path>               -> --dest
 #   SKIP_DOWNLOADS=1          -> --skip-downloads
+#   OPEN_FOLDERS=0            -> disable auto-open (default: on)
+#   CODE_BIN=<code>           -> --code-bin <code>
+#   CODE_NEW_WINDOW=1         -> --code-new-window
 
 input="${1:-}"
 if [[ -z "$input" ]]; then
@@ -36,6 +39,23 @@ fi
 
 if [[ "${SKIP_DOWNLOADS:-}" == "1" ]]; then
   args+=(--skip-downloads)
+fi
+
+# Auto-open fetched folders in VS Code by default; set OPEN_FOLDERS=0 to skip
+open_folders="${OPEN_FOLDERS:-1}"
+code_bin="${CODE_BIN:-}"
+code_new_window="${CODE_NEW_WINDOW:-}"
+
+if [[ -n "$code_bin" ]]; then
+  args+=(--code-bin "$code_bin")
+fi
+
+if [[ "$code_new_window" == "1" ]]; then
+  args+=(--code-new-window)
+fi
+
+if [[ "$open_folders" != "0" ]]; then
+  args+=(--open-folders)
 fi
 
 args+=("$@")
